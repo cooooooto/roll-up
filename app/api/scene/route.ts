@@ -37,40 +37,60 @@ export async function GET() {
       // Si la tabla no existe, crearla
       if (tableError && typeof tableError === 'object' && 'code' in tableError && tableError.code === '42P01') {
         console.log('Creando tabla scene_objects...');
-        await sql.unsafe(`
-          CREATE TABLE IF NOT EXISTS scene_objects (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            type VARCHAR(50) NOT NULL,
-            position_x FLOAT NOT NULL DEFAULT 0,
-            position_y FLOAT NOT NULL DEFAULT 0,
-            position_z FLOAT NOT NULL DEFAULT 0,
-            rotation_x FLOAT NOT NULL DEFAULT 0,
-            rotation_y FLOAT NOT NULL DEFAULT 0,
-            rotation_z FLOAT NOT NULL DEFAULT 0,
-            scale_x FLOAT NOT NULL DEFAULT 1,
-            scale_y FLOAT NOT NULL DEFAULT 1,
-            scale_z FLOAT NOT NULL DEFAULT 1,
-            color VARCHAR(20) NOT NULL DEFAULT '#ffffff',
-            material_type VARCHAR(50) DEFAULT 'standard',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
 
-          CREATE INDEX IF NOT EXISTS idx_scene_objects_type ON scene_objects(type);
-          CREATE INDEX IF NOT EXISTS idx_scene_objects_position ON scene_objects(position_x, position_y, position_z);
+        // Crear tabla
+        await sql`CREATE TABLE IF NOT EXISTS scene_objects (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          type VARCHAR(50) NOT NULL,
+          position_x FLOAT NOT NULL DEFAULT 0,
+          position_y FLOAT NOT NULL DEFAULT 0,
+          position_z FLOAT NOT NULL DEFAULT 0,
+          rotation_x FLOAT NOT NULL DEFAULT 0,
+          rotation_y FLOAT NOT NULL DEFAULT 0,
+          rotation_z FLOAT NOT NULL DEFAULT 0,
+          scale_x FLOAT NOT NULL DEFAULT 1,
+          scale_y FLOAT NOT NULL DEFAULT 1,
+          scale_z FLOAT NOT NULL DEFAULT 1,
+          color VARCHAR(20) NOT NULL DEFAULT '#ffffff',
+          material_type VARCHAR(50) DEFAULT 'standard',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`;
 
-          INSERT INTO scene_objects (name, type, position_x, position_y, position_z, scale_x, scale_y, scale_z, color, material_type) VALUES
-          ('Floor', 'floor', 0, -1, 0, 50, 1, 50, '#8B4513', 'standard'),
-          ('Wall_Back', 'wall', 0, 5, -25, 50, 10, 1, '#F5F5DC', 'standard'),
-          ('Wall_Front', 'wall', 0, 5, 25, 50, 10, 1, '#F5F5DC', 'standard'),
-          ('Wall_Left', 'wall', -25, 5, 0, 1, 10, 50, '#F5F5DC', 'standard'),
-          ('Wall_Right', 'wall', 25, 5, 0, 1, 10, 50, '#F5F5DC', 'standard'),
-          ('Cube_1', 'cube', -5, 1, -5, 2, 2, 2, '#FF6B6B', 'standard'),
-          ('Cube_2', 'cube', 5, 1, -5, 2, 2, 2, '#4ECDC4', 'standard'),
-          ('Sphere_1', 'sphere', 0, 3, 0, 1.5, 1.5, 1.5, '#45B7D1', 'standard')
-          ON CONFLICT (id) DO NOTHING;
-        `);
+        // Crear índices
+        await sql`CREATE INDEX IF NOT EXISTS idx_scene_objects_type ON scene_objects(type)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_scene_objects_position ON scene_objects(position_x, position_y, position_z)`;
+
+        // Insertar datos iniciales (usando queries separadas)
+        const initialData = [
+          { name: 'Floor', type: 'floor', position_x: 0, position_y: -1, position_z: 0, scale_x: 50, scale_y: 1, scale_z: 50, color: '#8B4513', material_type: 'standard' },
+          { name: 'Wall_Back', type: 'wall', position_x: 0, position_y: 5, position_z: -25, scale_x: 50, scale_y: 10, scale_z: 1, color: '#F5F5DC', material_type: 'standard' },
+          { name: 'Wall_Front', type: 'wall', position_x: 0, position_y: 5, position_z: 25, scale_x: 50, scale_y: 10, scale_z: 1, color: '#F5F5DC', material_type: 'standard' },
+          { name: 'Wall_Left', type: 'wall', position_x: -25, position_y: 5, position_z: 0, scale_x: 1, scale_y: 10, scale_z: 50, color: '#F5F5DC', material_type: 'standard' },
+          { name: 'Wall_Right', type: 'wall', position_x: 25, position_y: 5, position_z: 0, scale_x: 1, scale_y: 10, scale_z: 50, color: '#F5F5DC', material_type: 'standard' },
+          { name: 'Cube_1', type: 'cube', position_x: -5, position_y: 1, position_z: -5, scale_x: 2, scale_y: 2, scale_z: 2, color: '#FF6B6B', material_type: 'standard' },
+          { name: 'Cube_2', type: 'cube', position_x: 5, position_y: 1, position_z: -5, scale_x: 2, scale_y: 2, scale_z: 2, color: '#4ECDC4', material_type: 'standard' },
+          { name: 'Sphere_1', type: 'sphere', position_x: 0, position_y: 3, position_z: 0, scale_x: 1.5, scale_y: 1.5, scale_z: 1.5, color: '#45B7D1', material_type: 'standard' }
+        ];
+
+        // Verificar si ya hay datos
+        const existingCount = await sql`SELECT COUNT(*) as count FROM scene_objects`;
+
+        if (existingCount[0].count === 0) {
+          // Insertar datos iniciales solo si la tabla está vacía
+          for (const item of initialData) {
+            await sql`
+              INSERT INTO scene_objects (
+                name, type, position_x, position_y, position_z,
+                scale_x, scale_y, scale_z, color, material_type
+              ) VALUES (
+                ${item.name}, ${item.type}, ${item.position_x}, ${item.position_y}, ${item.position_z},
+                ${item.scale_x}, ${item.scale_y}, ${item.scale_z}, ${item.color}, ${item.material_type}
+              )
+            `;
+          }
+        }
         console.log('Tabla scene_objects creada exitosamente');
       }
     }
