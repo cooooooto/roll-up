@@ -1,0 +1,937 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { PointerLockControls, PerformanceMonitor } from '@react-three/drei';
+import { EffectComposer, Bloom, ToneMapping } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
+import * as THREE from 'three';
+import type { SceneObject } from '../app/api/scene/route';
+
+// Tipos para el estado del movimiento
+interface MovementState {
+  forward: boolean;
+  backward: boolean;
+  left: boolean;
+  right: boolean;
+  jump: boolean;
+}
+
+// Componente para el punto de apuntado visual (optimizado)
+function CursorPoint({ position }: { position: THREE.Vector3 | null }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  // Animación simple y eficiente
+  useFrame((state) => {
+    if (meshRef.current) {
+      const time = state.clock.elapsedTime;
+      // Animación más simple y menos frecuente
+      const scale = 1 + Math.sin(time * 2) * 0.1;
+      meshRef.current.scale.setScalar(scale);
+    }
+  });
+
+  if (!position) return null;
+
+  return (
+    <mesh ref={meshRef} position={position.toArray()}>
+      {/* Punto simple sin halo para mejor rendimiento */}
+      <sphereGeometry args={[0.03, 8, 8]} />
+      <meshBasicMaterial
+        color="#00FF88"
+        transparent
+        opacity={0.8}
+      />
+    </mesh>
+  );
+}
+
+// Componente para renderizar objetos de escena
+function SceneObjectMesh({ object }: { object: SceneObject }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  const position: [number, number, number] = [
+    object.position_x,
+    object.position_y,
+    object.position_z
+  ];
+
+  const rotation: [number, number, number] = [
+    object.rotation_x,
+    object.rotation_y,
+    object.rotation_z
+  ];
+
+  const scale: [number, number, number] = [
+    object.scale_x,
+    object.scale_y,
+    object.scale_z
+  ];
+
+  // Renderizar diferentes tipos de objetos con materiales más realistas
+  switch (object.type) {
+    case 'cube':
+      return (
+        <mesh ref={meshRef} position={position} rotation={rotation} scale={scale} castShadow receiveShadow>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial
+            color={object.color}
+            roughness={0.7}
+            metalness={0.1}
+            envMapIntensity={0.5}
+          />
+        </mesh>
+      );
+
+    case 'sphere':
+      return (
+        <mesh ref={meshRef} position={position} rotation={rotation} scale={scale} castShadow receiveShadow>
+          <sphereGeometry args={[0.5, 16, 16]} />
+          <meshStandardMaterial
+            color={object.color}
+            roughness={0.3}
+            metalness={0.2}
+            envMapIntensity={0.8}
+          />
+        </mesh>
+      );
+
+    case 'floor':
+      return (
+        <mesh
+          ref={(mesh) => {
+            if (mesh) mesh.userData.type = 'floor';
+            if (meshRef.current !== mesh) meshRef.current = mesh;
+          }}
+          position={position}
+          rotation={rotation}
+          scale={scale}
+          receiveShadow
+        >
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial
+            color={object.color}
+            roughness={0.9}
+            metalness={0.0}
+            envMapIntensity={0.3}
+          />
+        </mesh>
+      );
+
+    case 'wall':
+      return (
+        <mesh ref={meshRef} position={position} rotation={rotation} scale={scale} castShadow receiveShadow>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial
+            color={object.color}
+            roughness={0.8}
+            metalness={0.05}
+            envMapIntensity={0.4}
+          />
+        </mesh>
+      );
+
+    default:
+      return null;
+  }
+}
+
+// Componente para el controlador de primera persona
+function FirstPersonController({
+  onPositionChange,
+  onPaint,
+  onMovementChange
+}: {
+  onPositionChange: (position: THREE.Vector3) => void;
+  onPaint?: (intersectionPoint: THREE.Vector3) => void;
+  onMovementChange?: (movement: MovementState) => void;
+}) {
+  const { camera, scene } = useThree();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const controlsRef = useRef<any>(null);
+  const [movement, setMovement] = useState<MovementState>({
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    jump: false
+  });
+
+  const velocity = useRef(new THREE.Vector3());
+  const direction = useRef(new THREE.Vector3());
+  const prevTime = useRef(performance.now());
+  const lastCollisionTime = useRef(0);
+  const isGrounded = useRef(true); // Controla si el personaje está en el suelo
+  const verticalVelocity = useRef(0); // Velocidad vertical para el salto
+  const mouseRaycaster = useRef(new THREE.Raycaster());
+  const mouseVector = useRef(new THREE.Vector2());
+  const currentIntersectionPoint = useRef<THREE.Vector3 | null>(null);
+
+  // Configurar controles de movimiento
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      console.log('Key pressed:', event.code); // Debug
+
+      // Evitar que las teclas WASD interfieran con otros elementos
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(event.code)) {
+        event.preventDefault();
+      }
+
+      switch (event.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          console.log('Moving forward');
+          setMovement(prev => ({
+            ...prev,
+            forward: true
+          }));
+          onMovementChange?.({ ...movement, forward: true });
+          break;
+        case 'KeyS':
+        case 'ArrowDown':
+          console.log('Moving backward');
+          setMovement(prev => ({
+            ...prev,
+            backward: true
+          }));
+          onMovementChange?.({ ...movement, backward: true });
+          break;
+        case 'KeyA':
+        case 'ArrowLeft':
+          console.log('Moving left');
+          setMovement(prev => ({
+            ...prev,
+            left: true
+          }));
+          onMovementChange?.({ ...movement, left: true });
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          console.log('Moving right');
+          setMovement(prev => ({
+            ...prev,
+            right: true
+          }));
+          onMovementChange?.({ ...movement, right: true });
+          break;
+        case 'Space':
+          event.preventDefault(); // Prevenir scroll de página
+          if (isGrounded.current) {
+            console.log('Jumping');
+            setMovement(prev => ({
+              ...prev,
+              jump: true
+            }));
+            verticalVelocity.current = 12; // Fuerza del salto aumentada para paredes más altas
+            isGrounded.current = false;
+            onMovementChange?.({ ...movement, jump: true });
+          }
+          break;
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      // Evitar que las teclas WASD interfieran con otros elementos
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) {
+        event.preventDefault();
+      }
+
+      switch (event.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          setMovement(prev => ({
+            ...prev,
+            forward: false
+          }));
+          onMovementChange?.({ ...movement, forward: false });
+          break;
+        case 'KeyS':
+        case 'ArrowDown':
+          setMovement(prev => ({
+            ...prev,
+            backward: false
+          }));
+          onMovementChange?.({ ...movement, backward: false });
+          break;
+        case 'KeyA':
+        case 'ArrowLeft':
+          setMovement(prev => ({
+            ...prev,
+            left: false
+          }));
+          onMovementChange?.({ ...movement, left: false });
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          setMovement(prev => ({
+            ...prev,
+            right: false
+          }));
+          onMovementChange?.({ ...movement, right: false });
+          break;
+      }
+    };
+
+    // Agregar listeners tanto al documento como a la ventana para mejor compatibilidad
+    console.log('Adding keyboard event listeners');
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      console.log('Removing keyboard event listeners');
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [movement, onMovementChange]);
+
+  // Función de detección de colisiones eliminada (duplicada)
+  // const checkCollision = useCallback((newPosition: THREE.Vector3): boolean => {
+    const playerRadius = 0.3; // Radio del jugador
+
+    // Obtener solo los objetos colisionables principales (paredes y cubos)
+    const collidableObjects = scene.children.filter((child: THREE.Object3D) =>
+      (child as THREE.Mesh).isMesh &&
+      (child.userData?.type === 'wall' || child.userData?.type === 'cube')
+    );
+
+    // Crear bounding box para el jugador (simplificado)
+    const playerBox = new THREE.Box3(
+      new THREE.Vector3(
+        newPosition.x - playerRadius,
+        newPosition.y - 0.5,
+        newPosition.z - playerRadius
+      ),
+      new THREE.Vector3(
+        newPosition.x + playerRadius,
+        newPosition.y + 1.6,
+        newPosition.z + playerRadius
+      )
+    );
+
+    // Verificar colisión con objetos principales
+    for (const object of collidableObjects) {
+      const mesh = object as THREE.Mesh;
+      const geometry = mesh.geometry;
+
+      if (geometry) {
+        geometry.computeBoundingBox();
+        const bbox = geometry.boundingBox;
+        if (bbox) {
+          const objectBox = new THREE.Box3();
+          objectBox.copy(bbox);
+          mesh.updateMatrixWorld();
+          objectBox.applyMatrix4(mesh.matrixWorld);
+
+          // Verificar colisión
+          if (playerBox.intersectsBox(objectBox)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }, [scene.children]);
+
+  // Manejar clics del mouse para pintura
+  useEffect(() => {
+    const handleMouseClick = (event: MouseEvent) => {
+      console.log('Mouse click detected, button:', event.button);
+      if (!onPaint || event.button !== 0) {
+        console.log('onPaint not available or not left click');
+        return;
+      }
+
+      // Pasar el punto de intersección actual almacenado
+      console.log('Calling onPaint with stored intersection point:', currentIntersectionPoint.current);
+      if (currentIntersectionPoint.current) {
+        onPaint(currentIntersectionPoint.current);
+      } else {
+        console.log('No intersection point available, skipping paint');
+      }
+    };
+
+    // Usar mousedown en lugar de click para mejor compatibilidad con PointerLockControls
+    console.log('Adding mouse event listener');
+    window.addEventListener('mousedown', handleMouseClick);
+    return () => {
+      console.log('Removing mouse event listener');
+      window.removeEventListener('mousedown', handleMouseClick);
+    };
+  }, [onPaint]);
+
+  // Loop de actualización del movimiento
+  useFrame(() => {
+    if (!controlsRef.current) return;
+
+    const time = performance.now();
+    const delta = Math.min((time - prevTime.current) / 1000, 1/30); // Limitar delta máximo a 30fps
+    prevTime.current = time;
+
+    // Calcular dirección del movimiento en espacio local de la cámara
+    direction.current.set(0, 0, 0);
+
+    if (movement.forward) direction.current.z -= 1;  // En espacio local, -Z es adelante
+    if (movement.backward) direction.current.z += 1; // En espacio local, +Z es atrás
+    if (movement.left) direction.current.x -= 1;     // En espacio local, -X es izquierda
+    if (movement.right) direction.current.x += 1;    // En espacio local, +X es derecha
+
+    // Transformar dirección del espacio local al espacio mundial usando rotación de la cámara
+    if (direction.current.length() > 0) {
+      direction.current.applyEuler(camera.rotation);
+      direction.current.y = 0; // Mantener movimiento solo horizontal
+      direction.current.normalize();
+    }
+
+    // Aplicar velocidad
+    const speed = 5.0; // unidades por segundo
+    velocity.current.copy(direction.current).multiplyScalar(speed * delta);
+
+    // Calcular nueva posición
+    const newPosition = camera.position.clone().add(velocity.current);
+
+    // Aplicar gravedad y movimiento vertical
+    if (!isGrounded.current) {
+      verticalVelocity.current -= 25 * delta; // Gravedad de la Tierra (9.8 m/s²)
+      newPosition.y += verticalVelocity.current * delta;
+
+      // Verificar si aterrizó en el suelo
+      if (newPosition.y <= 0.5) { // Altura del suelo
+        newPosition.y = 0.5;
+        verticalVelocity.current = 0;
+        isGrounded.current = true;
+        setMovement(prev => ({
+          ...prev,
+          jump: false
+        }));
+        onMovementChange?.({ ...movement, jump: false });
+      }
+    }
+
+    // Verificar límites del suelo (altura mínima)
+    if (isGrounded.current) {
+      newPosition.y = Math.max(newPosition.y, 0.5); // Altura mínima del personaje
+    }
+
+    // Verificar colisiones
+    if (!checkCollision(newPosition)) {
+      camera.position.copy(newPosition);
+      onPositionChange(camera.position.clone());
+      lastCollisionTime.current = 0; // Resetear tiempo de colisión
+    } else {
+      // Si hay colisión, intentar movimiento lateral para permitir deslizamiento
+      const slideDirections = [
+        new THREE.Vector3(velocity.current.x, 0, 0).normalize(), // Solo movimiento lateral X
+        new THREE.Vector3(0, 0, velocity.current.z).normalize(), // Solo movimiento lateral Z
+      ];
+
+      let moved = false;
+      for (const slideDir of slideDirections) {
+        if (slideDir.length() > 0) {
+          const slidePosition = camera.position.clone().add(slideDir.multiplyScalar(speed * delta * 0.5));
+          if (!checkCollision(slidePosition)) {
+            camera.position.copy(slidePosition);
+            onPositionChange(camera.position.clone());
+            moved = true;
+            break;
+          }
+        }
+      }
+
+      // Feedback visual de colisión (ligero movimiento de cámara)
+      if (!moved && performance.now() - lastCollisionTime.current > 200) { // Evitar spam
+        // Pequeño efecto de "rebote" visual
+        const shakeAmount = 0.02;
+        camera.position.x += (Math.random() - 0.5) * shakeAmount;
+        camera.position.z += (Math.random() - 0.5) * shakeAmount;
+        lastCollisionTime.current = performance.now();
+      }
+    }
+  });
+
+  // Actualizar el punto de intersección a menor frecuencia para mejorar rendimiento
+  const [frameCount, setFrameCount] = useState(0);
+  useFrame(() => {
+    // Solo actualizar cada 3 frames para reducir lag
+    setFrameCount(prev => {
+      if (prev % 3 === 0) {
+        updateCursorIntersection();
+      }
+      return prev + 1;
+    });
+  });
+
+  // Estado para controlar la frecuencia de pintura
+  const lastPaintTimeRef = useRef(0);
+
+  // Función para actualizar el punto de intersección del cursor
+  const updateCursorIntersection = useCallback(() => {
+    // Usar el centro de la pantalla (donde apunta la cámara)
+    mouseVector.current.set(0, 0);
+
+    // Configurar raycaster con la dirección de la cámara
+    mouseRaycaster.current.setFromCamera(mouseVector.current, camera);
+
+    // Buscar solo paredes para mejor rendimiento
+    const paintableObjects = scene.children.filter((child: THREE.Object3D) =>
+      child.userData?.type === 'wall' &&
+      (child as THREE.Mesh).isMesh &&
+      child.visible
+    );
+
+    let closestIntersection: THREE.Vector3 | null = null;
+    let closestDistance = Infinity;
+
+    // Intersectar con paredes únicamente para mejor rendimiento
+    for (const object of paintableObjects) {
+      const intersects = mouseRaycaster.current.intersectObject(object, false); // false = no recursivo
+      if (intersects.length > 0) {
+        const intersection = intersects[0];
+        const distance = camera.position.distanceTo(intersection.point);
+
+        // Solo considerar intersecciones dentro de rango razonable
+        if (distance >= 1 && distance <= 25 && distance < closestDistance) {
+          closestIntersection = intersection.point.clone();
+          closestDistance = distance;
+
+          // Ajustar punto ligeramente para evitar z-fighting
+          const normal = intersection.face?.normal;
+          if (normal) {
+            closestIntersection.add(normal.clone().multiplyScalar(0.001));
+          }
+        }
+      }
+    }
+
+    // Almacenar el punto de intersección actual para uso en clicks
+    currentIntersectionPoint.current = closestIntersection;
+  }, [camera, scene.children]);
+
+
+  // Manejar clics del mouse para pintura
+  useEffect(() => {
+    const handleMouseClick = (event: MouseEvent) => {
+      console.log('Mouse click detected, button:', event.button);
+      console.log('onPaint function available:', !!onPaint);
+
+      if (!onPaint || event.button !== 0) {
+        console.log('onPaint not available or not left click');
+        return;
+      }
+
+      // Pasar el punto de intersección actual almacenado
+      console.log('Calling onPaint with stored intersection point:', currentIntersectionPoint.current);
+      if (currentIntersectionPoint.current) {
+        onPaint(currentIntersectionPoint.current);
+      } else {
+        console.log('No intersection point available, skipping paint');
+      }
+    };
+
+    // Usar mousedown en lugar de click para mejor compatibilidad con PointerLockControls
+    window.addEventListener('mousedown', handleMouseClick);
+    return () => window.removeEventListener('mousedown', handleMouseClick);
+  }, [onPaint]);
+
+  // Caché para bounding boxes (optimización)
+  const boundingBoxesCache = useRef<Map<string, THREE.Box3>>(new Map());
+
+  // Función de detección de colisiones eliminada (duplicada)
+  /*
+  const checkCollision = useCallback((newPosition: THREE.Vector3): boolean => {
+    const playerRadius = 0.3; // Radio del jugador
+
+    // Obtener solo los objetos colisionables principales (paredes y cubos)
+    const collidableObjects = scene.children.filter((child: THREE.Object3D) =>
+      (child as THREE.Mesh).isMesh &&
+      (child.userData?.type === 'wall' || child.userData?.type === 'cube')
+    );
+
+    // Crear bounding box para el jugador (simplificado)
+    const playerBox = new THREE.Box3(
+      new THREE.Vector3(
+        newPosition.x - playerRadius,
+        newPosition.y - 0.5,
+        newPosition.z - playerRadius
+      ),
+      new THREE.Vector3(
+        newPosition.x + playerRadius,
+        newPosition.y + 1.6,
+        newPosition.z + playerRadius
+      )
+    );
+
+    // Verificar colisión con objetos principales
+    for (const object of collidableObjects) {
+      const mesh = object as THREE.Mesh;
+      const cacheKey = mesh.uuid;
+
+      // Usar caché de bounding boxes o crear uno nuevo
+      let objectBox = boundingBoxesCache.current.get(cacheKey);
+      if (!objectBox) {
+        if (mesh.geometry) {
+          mesh.geometry.computeBoundingBox();
+          const bbox = mesh.geometry.boundingBox;
+          if (bbox) {
+            objectBox = new THREE.Box3();
+            objectBox.copy(bbox);
+            mesh.updateMatrixWorld();
+            objectBox.applyMatrix4(mesh.matrixWorld);
+            boundingBoxesCache.current.set(cacheKey, objectBox);
+          }
+        }
+      }
+
+      // Verificar colisión
+      if (objectBox && playerBox.intersectsBox(objectBox)) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [scene.children]);
+  */
+
+  // Loop de actualización del movimiento eliminado (duplicado)
+  /*
+  useFrame(() => {
+    if (!controlsRef.current) return;
+
+    const time = performance.now();
+    const delta = Math.min((time - prevTime.current) / 1000, 1/30); // Limitar delta máximo a 30fps
+    prevTime.current = time;
+
+    // Calcular dirección del movimiento en espacio local de la cámara
+    direction.current.set(0, 0, 0);
+
+    if (movement.forward) direction.current.z -= 1;  // En espacio local, -Z es adelante
+    if (movement.backward) direction.current.z += 1; // En espacio local, +Z es atrás
+    if (movement.left) direction.current.x -= 1;     // En espacio local, -X es izquierda
+    if (movement.right) direction.current.x += 1;    // En espacio local, +X es derecha
+
+    // Debug: mostrar estado del movimiento (solo en desarrollo)
+    if (process.env.NODE_ENV === 'development') {
+      const hasMovement = direction.current.length() > 0;
+      if (hasMovement) {
+        console.log('Movement input:', {
+          forward: movement.forward,
+          backward: movement.backward,
+          left: movement.left,
+          right: movement.right,
+          direction: direction.current
+        });
+      }
+    }
+
+    // Transformar dirección del espacio local al espacio mundial usando rotación de la cámara
+    if (direction.current.length() > 0) {
+      direction.current.applyEuler(camera.rotation);
+      direction.current.y = 0; // Mantener movimiento solo horizontal
+      direction.current.normalize();
+
+      // Debug: mostrar dirección transformada
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Transformed direction:', direction.current);
+      }
+    }
+
+    // Aplicar velocidad
+    const speed = 5.0; // unidades por segundo
+    velocity.current.copy(direction.current).multiplyScalar(speed * delta);
+
+    // Calcular nueva posición
+    const newPosition = camera.position.clone().add(velocity.current);
+
+    // Aplicar gravedad y movimiento vertical
+    if (!isGrounded.current) {
+      verticalVelocity.current -= 25 * delta; // Gravedad de la Tierra (9.8 m/s²)
+      newPosition.y += verticalVelocity.current * delta;
+
+      // Verificar si aterrizó en el suelo
+      if (newPosition.y <= 0.5) { // Altura del suelo
+        newPosition.y = 0.5;
+        verticalVelocity.current = 0;
+        isGrounded.current = true;
+        setMovement(prev => {
+          const newMovement = { ...prev, jump: false };
+          onMovementChange?.(newMovement);
+          return newMovement;
+        });
+      }
+    }
+
+    // Verificar límites del suelo (altura mínima)
+    if (isGrounded.current) {
+      newPosition.y = Math.max(newPosition.y, 0.5); // Altura mínima del personaje
+    }
+
+    // Verificar colisiones
+    if (!checkCollision(newPosition)) {
+      camera.position.copy(newPosition);
+      onPositionChange(camera.position.clone());
+      lastCollisionTime.current = 0; // Resetear tiempo de colisión
+    } else {
+      // Si hay colisión, intentar movimiento lateral para permitir deslizamiento
+      const slideDirections = [
+        new THREE.Vector3(velocity.current.x, 0, 0).normalize(), // Solo movimiento lateral X
+        new THREE.Vector3(0, 0, velocity.current.z).normalize(), // Solo movimiento lateral Z
+      ];
+
+      let moved = false;
+      for (const slideDir of slideDirections) {
+        if (slideDir.length() > 0) {
+          const slidePosition = camera.position.clone().add(slideDir.multiplyScalar(speed * delta * 0.5));
+          if (!checkCollision(slidePosition)) {
+            camera.position.copy(slidePosition);
+            onPositionChange(camera.position.clone());
+            moved = true;
+            break;
+          }
+        }
+      }
+
+      // Feedback visual de colisión (ligero movimiento de cámara)
+      if (!moved && performance.now() - lastCollisionTime.current > 200) { // Evitar spam
+        // Pequeño efecto de "rebote" visual
+        const shakeAmount = 0.02;
+        camera.position.x += (Math.random() - 0.5) * shakeAmount;
+        camera.position.z += (Math.random() - 0.5) * shakeAmount;
+        lastCollisionTime.current = performance.now();
+      }
+    }
+  });
+  */
+
+  return <PointerLockControls ref={controlsRef} />;
+}
+
+// Componente principal de escena 3D
+function Scene({ objects, onMovementChange }: { objects: SceneObject[], onMovementChange?: (movement: MovementState) => void }) {
+  const { camera } = useThree();
+  const [playerPosition, setPlayerPosition] = useState(new THREE.Vector3(0, 1.6, 5));
+  const cursorIntersectionPoint = useRef<THREE.Vector3 | null>(null); // Punto donde apunta el cursor (usando ref para evitar re-renders)
+  const wallRef = useRef<THREE.Mesh>(null);
+
+  const handlePositionChange = useCallback((position: THREE.Vector3) => {
+    setPlayerPosition(position.clone());
+  }, []);
+
+
+
+
+
+  // Crear textura canvas para pintura optimizada
+  const createPaintTexture = useCallback(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;  // Resolución reducida para mejor rendimiento
+    canvas.height = 512; // Resolución reducida para mejor rendimiento
+    const context = canvas.getContext('2d');
+
+    if (context) {
+      // Fondo simple para mejor rendimiento
+      context.fillStyle = '#F5F5DC';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+      return { canvas, context, texture };
+    }
+    return null;
+  }, []);
+
+  const paintTextureRef = useRef(createPaintTexture());
+  console.log('Paint texture created:', paintTextureRef.current);
+
+  // Estado para controlar la frecuencia de pintura
+  const lastPaintTimeRef = useRef(0);
+
+
+
+
+  // Función para pintar en la pared (optimizada)
+  const paintWall = useCallback((intersectionPoint: THREE.Vector3 | null) => {
+    // Solo mostrar logs de debug si hay un error, no en cada pintura
+    const debugMode = false;
+
+    if (debugMode) {
+      console.log('=== PAINT WALL START ===');
+    console.log('paintWall called with point:', intersectionPoint);
+    }
+
+    // Usar el punto que se pasó directamente, o el punto actual del cursor
+    const targetPoint = intersectionPoint || cursorIntersectionPoint.current;
+
+    if (!targetPoint || !paintTextureRef.current || !wallRef.current) {
+      if (debugMode) {
+        console.log('❌ Missing required refs or target point');
+      }
+      return;
+    }
+
+    // Limitar la frecuencia de pintura para mejorar rendimiento
+    const now = performance.now();
+    if (now - lastPaintTimeRef.current < 100) return; // Máximo 10 pinturas por segundo (reducido)
+    lastPaintTimeRef.current = now;
+
+    // Calcular distancia desde la posición del jugador hasta el punto de intersección
+    const distance = playerPosition.distanceTo(targetPoint);
+
+    // Permitir pintar desde cualquier distancia razonable (0.5-50 unidades)
+    if (distance < 0.5 || distance > 50) {
+      return;
+    }
+
+    const { context, texture, canvas } = paintTextureRef.current;
+
+    // Obtener la geometría de la pared para calcular coordenadas UV correctamente
+    const wallMesh = wallRef.current;
+    if (!wallMesh) {
+      return;
+    }
+
+    // Para una pared simple (box geometry), calcular UV coordinates directamente
+    // La pared mide 1x1x1 en geometría base, pero se escala
+    const localPoint = targetPoint.clone();
+    wallMesh.worldToLocal(localPoint); // Convertir a coordenadas locales de la pared
+
+    // Para una pared frontal (normal en Z positivo), UV coordinates se basan en X e Y
+    // Coordenadas locales van de -0.5 a 0.5 para geometría base de 1x1x1
+    const uvX = localPoint.x + 0.5; // Convertir de [-0.5, 0.5] a [0, 1]
+    const uvY = localPoint.y + 0.5; // Convertir de [-0.5, 0.5] a [0, 1]
+
+    // Asegurarse de que las coordenadas estén en el rango 0-1
+    const clampedUVX = Math.max(0, Math.min(1, uvX));
+    const clampedUVY = Math.max(0, Math.min(1, uvY));
+
+    // Dibujar un cuadrado más pequeño para mejor rendimiento
+    const squareSize = 60; // Tamaño del cuadrado reducido para mejor rendimiento
+    context.fillStyle = '#FF6B6B'; // Color de pintura rojo
+
+    const pixelX = clampedUVX * canvas.width - squareSize / 2;
+    const pixelY = (1 - clampedUVY) * canvas.height - squareSize / 2;
+
+    context.fillRect(pixelX, pixelY, squareSize, squareSize);
+
+    // Actualizar la textura solo cuando sea necesario
+    texture.needsUpdate = true;
+
+  }, [playerPosition]);
+
+  return (
+    <>
+      {/* Cielo azul */}
+      <color attach="background" args={['#87CEEB']} />
+
+      {/* Sistema de iluminación realista */}
+      <ambientLight intensity={0.4} color="#404040" />
+
+      {/* Luz principal (sol) */}
+      <directionalLight
+        position={[10, 15, 8]}
+        intensity={1.2}
+        color="#FFF8DC"
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-far={50}
+        shadow-camera-left={-25}
+        shadow-camera-right={25}
+        shadow-camera-top={25}
+        shadow-camera-bottom={-25}
+        shadow-bias={-0.0001}
+      />
+
+      {/* Luz de relleno suave */}
+      <directionalLight
+        position={[-8, 12, 6]}
+        intensity={0.4}
+        color="#87CEEB"
+      />
+
+      {/* Luz de acento para profundidad */}
+      <directionalLight
+        position={[0, 8, -12]}
+        intensity={0.3}
+        color="#FFE4B5"
+      />
+
+      {/* Luz puntual para realismo adicional */}
+      <pointLight
+        position={[0, 10, 0]}
+        intensity={0.2}
+        color="#FFFFE0"
+        distance={20}
+        decay={2}
+      />
+
+      {/* Controlador de primera persona */}
+      <FirstPersonController
+        onPositionChange={handlePositionChange}
+        onPaint={paintWall}
+        onMovementChange={onMovementChange}
+      />
+
+
+      {/* Renderizar objetos de escena */}
+      {objects.map((object) => {
+        if (object.type === 'wall') {
+          // Renderizar pared con textura pintable
+          return (
+            <mesh
+              key={object.id}
+              ref={(mesh) => {
+                if (mesh) {
+                  mesh.userData.type = 'wall';
+                  console.log('Wall mesh assigned, userData.type set to wall');
+                }
+                if (wallRef.current !== mesh) {
+                  wallRef.current = mesh;
+                  console.log('wallRef assigned to mesh');
+                }
+              }}
+              position={[object.position_x, object.position_y, object.position_z]}
+              rotation={[object.rotation_x, object.rotation_y, object.rotation_z]}
+              scale={[object.scale_x, object.scale_y * 5, object.scale_z]}
+              castShadow
+              receiveShadow
+            >
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial
+                map={paintTextureRef.current?.texture}
+                color={object.color}
+                roughness={0.9}
+                metalness={0.0}
+                envMapIntensity={0.3}
+                transparent={false}
+              />
+            </mesh>
+          );
+        }
+        return <SceneObjectMesh key={object.id} object={object} />;
+      })}
+
+      {/* Punto de apuntado visual */}
+      <CursorPoint position={cursorIntersectionPoint.current} />
+
+
+      {/* Información de debug - comentada */}
+      {/* <Text
+        position={[0, 3, -2]}
+        fontSize={0.2}
+        color="white"
+        anchorX="center"
+        anchorY="middle"
+      >
+        {`Posición: ${playerPosition.x.toFixed(1)}, ${playerPosition.y.toFixed(1)}, ${playerPosition.z.toFixed(1)}`}
+      </Text> */}
+    </>
+  );
+}
+
+

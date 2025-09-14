@@ -1,10 +1,16 @@
-![Vercel with Neon](./assets/home.png)
+# 🎮 VR First-Person Experience con Three.js y Neon
 
--> View demo: [vercel-marketplace-neon.vercel.app](https://vercel-marketplace-neon.vercel.app/)
+Una aplicación de realidad virtual en primera persona construida con Next.js 14 (App Router), Three.js, React Three Fiber, y Neon Postgres.
 
-# Neon Postgres
+-> **Características principales:**
+- ✅ Vista en primera persona con movimiento WASD
+- ✅ Rotación de cámara con mouse (Pointer Lock API)
+- ✅ Detección de colisiones con raycasting
+- ✅ Objetos 3D renderizados desde base de datos Neon
+- ✅ Sistema de sombras dinámicas
+- ✅ Optimización de rendimiento con throttling
 
-A minimal template for building full-stack React applications using Next.js, Vercel, and Neon.
+-> **Tecnologías:** Next.js 14, TypeScript, Three.js, React Three Fiber, Neon Postgres
 
 ## Getting Started
 
@@ -14,65 +20,100 @@ Click the "Deploy" button to clone this repo, create a new Vercel project, setup
 
 Once the process is complete, you can clone the newly created GitHub repository and start making changes locally.
 
-## Local Setup
+## 🚀 Prueba Local
 
-### Installation
-
-Install the dependencies:
+### 1. Instalación de dependencias
 
 ```bash
 npm install
 ```
 
-You can use the package manager of your choice. For example, Vercel also supports `bun install` out of the box.
+### 2. Configuración de variables de entorno
 
-### Development
+#### Crear archivo `.env.local`
 
-#### Create a .env file in the project root
+Crea un archivo `.env.local` en la raíz del proyecto con tu cadena de conexión de Neon:
 
 ```bash
-cp .env.example .env
+# Obtén esta cadena desde https://console.neon.tech/
+DATABASE_URL="postgresql://neondb_owner:tu_password@ep-tu-host-pooler.region.neon.tech/neondb?sslmode=require"
 ```
 
-#### Get your database URL
+> **⚠️ Seguridad:** Nunca incluyas `.env.local` en el control de versiones. La variable `DATABASE_URL` contiene credenciales sensibles.
 
-Obtain the database connection string from the Connection Details widget on the [Neon Dashboard](https://console.neon.tech/).
+### 3. Verificar conexión a base de datos
 
-#### Add the database URL to the .env file
-
-Update the `.env` file with your database connection string:
-
-```txt
-# The connection string has the format `postgres://user:pass@host/db`
-DATABASE_URL=<your-string-here>
-```
-
-#### Start the development server
+La aplicación ya incluye datos de ejemplo (suelo, cubos, esferas y paredes). Si necesitas verificar la conexión:
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ve a `http://localhost:3000/api/scene` para ver los objetos de escena en formato JSON.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Ejecutar la aplicación VR
 
-## Learn More
+```bash
+npm run dev
+```
 
-To learn more about Neon, check out the Neon documentation:
+Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
-- [Neon Documentation](https://neon.tech/docs/introduction) - learn about Neon's features and SDKs.
-- [Neon Discord](https://discord.gg/9kf3G4yUZk) - join the Neon Discord server to ask questions and join the community.
-- [ORM Integrations](https://neon.tech/docs/get-started-with-neon/orms) - find Object-Relational Mappers (ORMs) that work with Neon.
+### 🎮 Controles de VR
 
-To learn more about Next.js, take a look at the following resources:
+- **Click izquierdo** en la escena para activar los controles del mouse
+- **WASD** para moverte en primera persona
+- **Mouse** para rotar la cámara y mirar alrededor
+- **ESC** para liberar el mouse
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 🔧 Desarrollo
 
-## Deploy on Vercel
+- Modifica `components/FirstPersonScene.tsx` para personalizar la experiencia VR
+- Edita `app/api/scene/route.ts` para cambiar cómo se obtienen los objetos de la base de datos
+- Actualiza la tabla `scene_objects` en Neon para añadir más objetos 3D
 
-Commit and push your code changes to your GitHub repository to automatically trigger a new deployment.
+## 🔒 Notas de Seguridad
+
+### Variables de Entorno
+- **Nunca expongas `DATABASE_URL`** en el cliente - solo se usa en el servidor
+- El API route `/api/scene` es seguro porque se ejecuta únicamente en el servidor
+- Usa siempre HTTPS en producción para proteger la transmisión de datos
+
+### Buenas Prácticas
+- Implementa rate limiting en tus API routes para prevenir abuso
+- Valida y sanitiza todos los datos de entrada
+- Usa prepared statements (ya implementado con `@neondatabase/serverless`)
+- Mantén las dependencias actualizadas para seguridad
+
+## 🚀 Despliegue en Producción
+
+### Vercel (Recomendado)
+1. Sube tu código a GitHub
+2. Conecta tu repo a Vercel
+3. Agrega la variable `DATABASE_URL` en las Environment Variables de Vercel
+4. Despliega automáticamente
+
+### Variables de Entorno en Vercel
+```
+DATABASE_URL=postgresql://neondb_owner:tu_password@ep-tu-host-pooler.region.neon.tech/neondb?sslmode=require
+```
+
+## 📚 Recursos Adicionales
+
+### Three.js y React Three Fiber
+- [React Three Fiber Documentation](https://docs.pmnd.rs/react-three-fiber/getting-started/introduction)
+- [React Three Drei](https://github.com/pmndrs/drei) - componentes útiles para Three.js
+- [Three.js Manual](https://threejs.org/manual/)
+
+### Neon Postgres
+- [Neon Documentation](https://neon.tech/docs/introduction)
+- [Neon Discord](https://discord.gg/9kf3G4yUZk)
+- [Guía de Conexión](https://neon.tech/docs/get-started-with-neon/connect-to-neon)
+
+### Next.js 14
+- [Next.js Documentation](https://nextjs.org/docs)
+- [App Router Guide](https://nextjs.org/docs/app)
+- [API Routes](https://nextjs.org/docs/api-routes/introduction)
 
 
 
