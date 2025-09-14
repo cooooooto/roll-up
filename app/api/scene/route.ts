@@ -30,6 +30,51 @@ export async function GET() {
 
     const sql = neon(process.env.DATABASE_URL);
 
+    // Verificar si la tabla existe, si no, crearla
+    try {
+      await sql`SELECT COUNT(*) FROM scene_objects LIMIT 1`;
+    } catch (tableError: any) {
+      // Si la tabla no existe, crearla
+      if (tableError.code === '42P01') {
+        console.log('Creando tabla scene_objects...');
+        await sql.unsafe(`
+          CREATE TABLE IF NOT EXISTS scene_objects (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            type VARCHAR(50) NOT NULL,
+            position_x FLOAT NOT NULL DEFAULT 0,
+            position_y FLOAT NOT NULL DEFAULT 0,
+            position_z FLOAT NOT NULL DEFAULT 0,
+            rotation_x FLOAT NOT NULL DEFAULT 0,
+            rotation_y FLOAT NOT NULL DEFAULT 0,
+            rotation_z FLOAT NOT NULL DEFAULT 0,
+            scale_x FLOAT NOT NULL DEFAULT 1,
+            scale_y FLOAT NOT NULL DEFAULT 1,
+            scale_z FLOAT NOT NULL DEFAULT 1,
+            color VARCHAR(20) NOT NULL DEFAULT '#ffffff',
+            material_type VARCHAR(50) DEFAULT 'standard',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_scene_objects_type ON scene_objects(type);
+          CREATE INDEX IF NOT EXISTS idx_scene_objects_position ON scene_objects(position_x, position_y, position_z);
+
+          INSERT INTO scene_objects (name, type, position_x, position_y, position_z, scale_x, scale_y, scale_z, color, material_type) VALUES
+          ('Floor', 'floor', 0, -1, 0, 50, 1, 50, '#8B4513', 'standard'),
+          ('Wall_Back', 'wall', 0, 5, -25, 50, 10, 1, '#F5F5DC', 'standard'),
+          ('Wall_Front', 'wall', 0, 5, 25, 50, 10, 1, '#F5F5DC', 'standard'),
+          ('Wall_Left', 'wall', -25, 5, 0, 1, 10, 50, '#F5F5DC', 'standard'),
+          ('Wall_Right', 'wall', 25, 5, 0, 1, 10, 50, '#F5F5DC', 'standard'),
+          ('Cube_1', 'cube', -5, 1, -5, 2, 2, 2, '#FF6B6B', 'standard'),
+          ('Cube_2', 'cube', 5, 1, -5, 2, 2, 2, '#4ECDC4', 'standard'),
+          ('Sphere_1', 'sphere', 0, 3, 0, 1.5, 1.5, 1.5, '#45B7D1', 'standard')
+          ON CONFLICT (id) DO NOTHING;
+        `);
+        console.log('Tabla scene_objects creada exitosamente');
+      }
+    }
+
     // Obtener todos los objetos de escena
     const sceneObjects = await sql`
       SELECT
