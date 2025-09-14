@@ -67,7 +67,13 @@ export default async function Home() {
           />
           <div className="mt-8 flex flex-wrap items-center gap-5 md:mt-9 lg:mt-10">
             <Link
-              className="rounded-full bg-[#00E599] px-5 py-2.5 font-semibold tracking-tight text-[#0C0D0D] transition-colors duration-200 hover:bg-[#00E5BF] lg:px-7 lg:py-3"
+              className="rounded-full bg-[#4ECDC4] px-8 py-3 font-semibold tracking-tight text-[#0C0D0D] transition-all duration-200 hover:bg-[#45B7AA] hover:scale-105 shadow-lg hover:shadow-xl"
+              href="/original-paint"
+            >
+              🎨 Editor 3D Completo
+            </Link>
+            <Link
+              className="rounded-full bg-[#FF6B6B] px-5 py-2.5 font-semibold tracking-tight text-white transition-colors duration-200 hover:bg-[#FF5252] lg:px-7 lg:py-3"
               href={DATA.button.href}
               target="_blank"
             >
