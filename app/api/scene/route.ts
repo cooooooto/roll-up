@@ -33,9 +33,9 @@ export async function GET() {
     // Verificar si la tabla existe, si no, crearla
     try {
       await sql`SELECT COUNT(*) FROM scene_objects LIMIT 1`;
-    } catch (tableError: any) {
+    } catch (tableError: unknown) {
       // Si la tabla no existe, crearla
-      if (tableError.code === '42P01') {
+      if (tableError && typeof tableError === 'object' && 'code' in tableError && tableError.code === '42P01') {
         console.log('Creando tabla scene_objects...');
         await sql.unsafe(`
           CREATE TABLE IF NOT EXISTS scene_objects (
