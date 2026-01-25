@@ -168,6 +168,12 @@ function FirstPersonController({
   const isMouseDown = useRef(false);
   const lastPaintTime = useRef(0);
 
+  // Ref para almacenar la función onMovementChange y evitar re-registrar listeners
+  const onMovementChangeRef = useRef(onMovementChange);
+  useEffect(() => {
+    onMovementChangeRef.current = onMovementChange;
+  }, [onMovementChange]);
+
   // Configurar controles de movimiento
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -179,46 +185,46 @@ function FirstPersonController({
       switch (event.code) {
         case 'KeyW':
         case 'ArrowUp':
-          setMovement(prev => ({
-            ...prev,
-            forward: true
-          }));
-          onMovementChange?.({ ...movement, forward: true });
+          setMovement(prev => {
+            const newState = { ...prev, forward: true };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyS':
         case 'ArrowDown':
-          setMovement(prev => ({
-            ...prev,
-            backward: true
-          }));
-          onMovementChange?.({ ...movement, backward: true });
+          setMovement(prev => {
+            const newState = { ...prev, backward: true };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyA':
         case 'ArrowLeft':
-          setMovement(prev => ({
-            ...prev,
-            left: true
-          }));
-          onMovementChange?.({ ...movement, left: true });
+          setMovement(prev => {
+            const newState = { ...prev, left: true };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyD':
         case 'ArrowRight':
-          setMovement(prev => ({
-            ...prev,
-            right: true
-          }));
-          onMovementChange?.({ ...movement, right: true });
+          setMovement(prev => {
+            const newState = { ...prev, right: true };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'Space':
           event.preventDefault();
           if (isGrounded.current) {
-            setMovement(prev => ({
-              ...prev,
-              jump: true
-            }));
+            setMovement(prev => {
+              const newState = { ...prev, jump: true };
+              onMovementChangeRef.current?.(newState);
+              return newState;
+            });
             verticalVelocity.current = 12;
             isGrounded.current = false;
-            onMovementChange?.({ ...movement, jump: true });
           }
           break;
       }
@@ -233,35 +239,35 @@ function FirstPersonController({
       switch (event.code) {
         case 'KeyW':
         case 'ArrowUp':
-          setMovement(prev => ({
-            ...prev,
-            forward: false
-          }));
-          onMovementChange?.({ ...movement, forward: false });
+          setMovement(prev => {
+            const newState = { ...prev, forward: false };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyS':
         case 'ArrowDown':
-          setMovement(prev => ({
-            ...prev,
-            backward: false
-          }));
-          onMovementChange?.({ ...movement, backward: false });
+          setMovement(prev => {
+            const newState = { ...prev, backward: false };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyA':
         case 'ArrowLeft':
-          setMovement(prev => ({
-            ...prev,
-            left: false
-          }));
-          onMovementChange?.({ ...movement, left: false });
+          setMovement(prev => {
+            const newState = { ...prev, left: false };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
         case 'KeyD':
         case 'ArrowRight':
-          setMovement(prev => ({
-            ...prev,
-            right: false
-          }));
-          onMovementChange?.({ ...movement, right: false });
+          setMovement(prev => {
+            const newState = { ...prev, right: false };
+            onMovementChangeRef.current?.(newState);
+            return newState;
+          });
           break;
       }
     };
@@ -278,7 +284,7 @@ function FirstPersonController({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [movement, onMovementChange]);
+  }, []);
 
   // Función de detección de colisiones
   const checkCollision = useCallback((newPosition: THREE.Vector3): boolean => {
@@ -464,11 +470,11 @@ function FirstPersonController({
         newPosition.y = 0.5;
         verticalVelocity.current = 0;
         isGrounded.current = true;
-        setMovement(prev => ({
-          ...prev,
-          jump: false
-        }));
-        onMovementChange?.({ ...movement, jump: false });
+        setMovement(prev => {
+          const newState = { ...prev, jump: false };
+          onMovementChangeRef.current?.(newState);
+          return newState;
+        });
       }
     }
 

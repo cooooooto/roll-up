@@ -75,11 +75,20 @@ export async function DELETE(request: Request) {
     }
 
     const url = new URL(request.url);
-    const ids = url.searchParams.get('ids')?.split(',').map(id => parseInt(id));
+    const idsParam = url.searchParams.get('ids');
 
-    if (!ids || ids.length === 0) {
+    if (!idsParam) {
       return NextResponse.json(
         { error: "No object IDs provided" },
+        { status: 400 }
+      );
+    }
+
+    const ids = idsParam.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+
+    if (ids.length === 0) {
+      return NextResponse.json(
+        { error: "No valid object IDs provided" },
         { status: 400 }
       );
     }
